@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat LAN</title>
+    <style>
+        body{margin:0;font-family:Segoe UI, Tahoma, Geneva, Verdana, sans-serif;background:#e5ddd5;height:100vh;display:flex;flex-direction:column}
+        .login-screen{flex:1;display:flex;align-items:center;justify-content:center;background:#f0f2f5}
+        .login-box{background:white;padding:40px;border-radius:10px;box-shadow:0 4px 15px rgba(0,0,0,0.1);text-align:center}
+        .app-container{display:none;flex-direction:column;height:100vh;max-width:800px;margin:0 auto;width:100%;background:white}
+        #messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:10px}
+        .msg{padding:8px 12px;border-radius:8px;max-width:75%;position:relative;box-shadow:0 1px 1px rgba(0,0,0,0.1)}
+        .sent{align-self:flex-end;background:#dcf8c6}
+        .received{align-self:flex-start;background:white}
+        .footer{padding:10px;background:#f0f0f0;display:flex;align-items:center;gap:10px}
+        input#textInput{flex:1;padding:12px;border-radius:20px;border:none;outline:none}
+        button{background:#25d366;color:white;border:none;padding:10px 20px;border-radius:20px;cursor:pointer}
+        .file-label{cursor:pointer;font-size:20px}
+    </style>
+</head>
+<body>
+
+<div id="loginScreen" class="login-screen">
+    <div class="login-box">
+        <h2>WhatsApp LAN</h2>
+        <input type="text" id="username" placeholder="Seu nome..." style="padding:10px;width:200px;margin-bottom:10px"><br>
+        <button onclick="startChat()">Entrar no Chat</button>
+    </div>
+</div>
+
+<div id="appContainer" class="app-container">
+    <div id="messages"></div>
+    <div class="footer">
+        <label class="file-label">
+            📎<input type="file" id="fileInput" style="display:none">
+        </label>
+        <input type="text" id="textInput" placeholder="Mensagem" autocomplete="off">
+        <button onclick="sendText()">Enviar</button>
+    </div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+    // Detecta o IP de quem serve a página automaticamente
+    const SERVER = window.location.protocol + "//" + window.location.host;
+    let socket, currentUser;
+    const room = "geral";
+
+    function startChat() {
+        currentUser = document.getElementById('username').value;
+        if(!currentUser) return alert("Digite seu nome");
+
+        document.getElementById('loginScreen').style.display = 'none';
+        document.getElementById('appContainer').style.display = 'flex';
+
+        socket = io(SERVER);
+        socket.emit("join", room);
+
+        // Busca histórico
+        fetch(`${SERVER}/messages/${room}`)
+            .then(r => r.json())
+            .then(msgs => {
+                msgs.forEach(m => m.url ? renderFile(m) : renderText(m));
+                scrollToBottom();
+            });
+
+        socket.on("message", renderText);
+        socket.on("fileMessage", renderFile);
+    }
+
+    function renderText(m) {
+        if(!m.text) return;
+        const div = document.createElement('div');
+        div.className = `msg ${m.user === currentUser ? 'sent' : 'received'}`;
+        div.innerHTML = `<strong>${m.user}</strong><br>${m.text}`;
+        document.getElementById('messages').appendChild(div);
+        scrollToBottom();
+    }
+
+    function renderFile(m) {
+        const div = document.createElement('div');
+        div.className = `msg ${m.user === currentUser ? 'sent' : 'received'}`;
+        div.innerHTML = `<strong>${m.user}</strong><br>📁 <a href="${m.url}" target="_blank">${m.name}</a>`;
+        document.getElementById('messages').appendChild(div);
+        scrollToBottom();
+    }
+
+    function sendText() {
+        const input = document.getElementById('textInput');
+        if(input.value) {
+            socket.emit("message", { room, user: currentUser, text: input.value });
+            input.value = "";
+        }
+    }
+
+    document.getElementById('fileInput').onchange = (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+        
+        const fd = new FormData();
+        fd.append("file", file);
+
+        fetch(`${SERVER}/upload`, { method: "POST", body: fd })
+            .then(r => r.json())
+            .then(res => {
+                socket.emit("fileMessage", { room, user: currentUser, ...res });
+            });
+    };
+
+    function scrollToBottom() {
+        const m = document.getElementById('messages');
+        m.scrollTop = m.scrollHeight;
+    }
+
+    // Enviar com a tecla Enter
+    document.getElementById('textInput').addEventListener("keypress", (e) => {
+        if (e.key === "Enter") sendText();
+    });
+</script>
+</body>
+</html>
